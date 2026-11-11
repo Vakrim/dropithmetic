@@ -18,6 +18,7 @@ export const ICONS = {
   lock: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4',
   back: 'M9 5h11v14H9l-6-7zM12 9l5 6M17 9l-5 6',
   check: 'M4 12l5 5L20 6',
+  copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
   castle: 'M6 50 V18 H20 V8 H34 V18 H46 V4 H86 V18 H98 V8 H112 V18 H126 V50 Z',
 };
 const paths = new Map<string, Path2D>();

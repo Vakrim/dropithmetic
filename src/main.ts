@@ -17,8 +17,10 @@ let ended = false;
 // Stats of all games in this page load, memory only. Run getStats() in the console.
 // It returns compact JSON and tries to copy it to the clipboard.
 const played: ReturnType<Game['report']>[] = [];
+const stats = () => JSON.stringify(game && !ended ? [...played, game.report('running')] : played);
+let copiedAt = -Infinity; // time of the last copy from the menu button
 (window as unknown as { getStats: () => string }).getStats = () => {
-  const json = JSON.stringify(game && !ended ? [...played, game.report('running')] : played);
+  const json = stats();
   navigator.clipboard.writeText(json).then(
     () => console.log('getStats: copied to clipboard'),
     // Chrome rejects the write when the focus is in DevTools, not on the page.
@@ -94,6 +96,13 @@ function drawMenu() {
       text(ctx, String(lvl), x + 100, y + 150, 26, '#B3BCCB');
     }
   }
+  // Small icon button: copy the stats JSON. It shows a check for 1.5 s after a copy.
+  if (!played.length) return;
+  const cx = VW - 68, cy = VH - 68, c = btn(cx, cy, 44, 44), dy = c.pressed ? 3 : 0;
+  if (!c.pressed) rrect(ctx, cx, cy + 3, 44, 44, 12, '#5A6478');
+  rrect(ctx, cx, cy + dy, 44, 44, 12, c.hover ? '#7D879BDD' : '#7D879B');
+  icon(ctx, performance.now() - copiedAt < 1500 ? ICONS.check : ICONS.copy, cx + 22, cy + 22 + dy, 24, '#FFFFFF');
+  if (c.clicked) navigator.clipboard.writeText(stats()).then(() => { copiedAt = performance.now(); }, () => {});
 }
 
 function drawEnd(g: Game) {
