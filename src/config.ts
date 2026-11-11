@@ -69,9 +69,11 @@ export const UPGRADES = [
 // The combo decides the question tier. Each tier lasts 3 correct answers.
 export const TIER_LEN = 3;
 export const TIER_MULT = [1, 3, 5, 7]; // tier 5: 10 + correct answers in tier 5
-// Simulation speed per tier: a high combo slows the battle, so the child can focus on the math.
-export const TIER_SPEED = [1, 0.85, 0.7, 0.55, 0.4];
-export const SPEED_EASE = 2; // per second: how fast the speed moves to the new value
+// Math rounds: the battle pauses while the child does the math.
+export const QUIZ = {
+  cooldown: 5, // seconds of battle before the next round can start
+  passive: 0.1, // coins per second for each correct answer in this level
+};
 
 export const COLORS = {
   player: '#3B6FE0',

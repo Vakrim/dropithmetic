@@ -42,9 +42,9 @@ canvas.addEventListener('pointerdown', (e) => { toVirtual(e); inp.down = true; i
 canvas.addEventListener('pointerup', (e) => { toVirtual(e); inp.down = false; inp.released = true; });
 canvas.addEventListener('pointercancel', () => { inp.down = false; inp.downX = inp.downY = -1; });
 addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { quit(); return; }
+  if (e.key === 'Escape') { if (game?.open) game.leave(); else quit(); return; }
   inp.keys.push(e.key);
-  if (e.key === 'Backspace' || e.key === 'Enter') e.preventDefault();
+  if (e.key === 'Backspace' || e.key === 'Enter' || e.key === ' ') e.preventDefault();
 });
 
 function button(label: string, x: number, y: number, w: number, h: number, color: string, shade: string) {
@@ -121,7 +121,7 @@ function frame(now: number) {
     if (g.sim.winner === null) g.update(dt);
     else inp.keys.length = 0;
     g.draw(ctx, now);
-    if (g.sim.winner === null && button('Menu', 1296, 828, 120, 48, '#7D879B', '#5A6478')) quit();
+    if (g.sim.winner === null && !g.open && button('Menu', 1296, 828, 120, 48, '#7D879B', '#5A6478')) quit();
     if (g.sim.winner !== null) drawEnd(g);
   } else drawMenu();
 

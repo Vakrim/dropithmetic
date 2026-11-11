@@ -2,6 +2,7 @@
 import { DT } from './config';
 import { carries, makeQuestion, multOf, Quiz } from './quiz';
 import { Sim } from './sim';
+import { Game, inp } from './ui';
 
 const fail = (m: string) => { throw new Error(m); };
 const assert = {
@@ -72,3 +73,37 @@ for (let seed = 1; seed <= 5; seed++) {
   for (let i = 0; i < 120 * 60; i++) sim.step(DT);
   assert.ok(sim.units.every((u) => u.age < 15), `stuck unit, seed ${seed}`);
 }
+
+// Math rounds: cooldown, pause, payout on close, combo kept on leave, passive income only while running.
+{
+  const g = new Game(1);
+  const money = () => g.sim.sides[0].money;
+  const key = (...k: string[]) => { inp.keys.push(...k); g.update(0.01); inp.keys.length = 0; };
+  const answer = (d = 0) => key(...String(g.quiz.q.answer + d), 'Enter');
+  key('Enter');
+  assert.equal(g.open, false, 'opened during cooldown');
+  for (let i = 0; i < 500; i++) g.update(0.01);
+  key('Enter');
+  assert.ok(g.open, 'not opened');
+  answer(); answer();
+  const t = g.sim.time;
+  for (let i = 0; i < 100; i++) g.update(0.01);
+  assert.equal(g.sim.time, t, 'battle runs in the modal');
+  assert.equal(g.pot, 20, 'pot');
+  assert.equal(money(), 0, 'paid before close');
+  g.leave();
+  assert.equal(money(), 20, 'payout');
+  assert.ok(!g.open && g.quiz.combo === 2 && g.streak === 2 && g.cooldown === 5, 'leave');
+  for (let i = 0; i < 100; i++) g.update(0.01);
+  assert.ok(Math.abs(money() - (20 + 0.1 * 2 * g.sim.time - 0.1 * 2 * t)) < 1e-6, 'passive');
+  for (let i = 0; i < 500; i++) g.update(0.01);
+  key(' ');
+  answer(); answer(1);
+  const m = money();
+  g.leave();
+  assert.ok(g.open, 'leave during the wrong answer');
+  for (let i = 0; i < 150; i++) g.update(0.01);
+  assert.ok(!g.open && g.quiz.combo === 0 && g.streak === 3 && g.solved === 3, 'round end');
+  assert.ok(money() - m >= 10 && g.pot === 0, 'payout after a wrong answer');
+}
+console.log('ok rounds');

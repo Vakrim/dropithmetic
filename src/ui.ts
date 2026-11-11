@@ -1,12 +1,13 @@
-import { CFG, COLORS, DT, KINDS, Side, SPEED_EASE, TIER_SPEED, UNITS, UPGRADES } from './config';
+import { CFG, COLORS, DT, KINDS, QUIZ, Side, UNITS, UPGRADES } from './config';
 import { coin, drawBoard, FONT, icon, ICONS, rrect, SIDE_COLOR, text, unitBall } from './draw';
-import { Quiz } from './quiz';
+import { Quiz, tierOf } from './quiz';
 import { buildingPrice, Sim, upgradePrice } from './sim';
 
 // ---- Input (virtual 1440 x 900 coordinates) ----
-export const inp = { x: -1, y: -1, down: false, downX: -1, downY: -1, released: false, hoverAny: false, keys: [] as string[] };
+export const inp = { x: -1, y: -1, down: false, downX: -1, downY: -1, released: false, hoverAny: false, block: false, keys: [] as string[] };
 
 export function btn(x: number, y: number, w: number, h: number) {
+  if (inp.block) return { hover: false, pressed: false, clicked: false }; // behind the math modal
   const inside = (px: number, py: number) => px >= x && px <= x + w && py >= y && py <= y + h;
   const hover = inside(inp.x, inp.y);
   if (hover) inp.hoverAny = true;
@@ -52,6 +53,10 @@ export function drawParticles(ctx: CanvasRenderingContext2D, dt: number) {
 // ---- Game screen ----
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok'];
 const COIN_POS = { x: 772, y: 384 };
+// The modal reuses the panel coordinates (x 736, y 20), moved to the screen center.
+const MODAL = { dx: 380 - 736, dy: 190 - 20 };
+const POT_POS = { x: 776 + MODAL.dx, y: 400 + MODAL.dy };
+const num1 = (n: number) => n.toFixed(1).replace('.', ',');
 
 export class Game {
   sim: Sim;
@@ -61,9 +66,17 @@ export class Game {
   okFlash = 0;
   gain = { v: 0, t: 0 };
   shownMoney = 0;
+  open = false; // the math modal is open and the battle is paused
+  cooldown = QUIZ.cooldown; // seconds until the next round can start
+  pot = 0; // coins won in this round, paid when the modal closes
+  shownPot = 0;
+  potGain = { v: 0, t: 0 };
+  streak = 0; // length of the current or last series
+  pop = 0; // combo pop animation
+  solved = 0; // correct answers in this level, they give the passive income
+  passiveEarned = 0;
   // Balancing stats for the questions, per tier
   qTime = 0;
-  speed = 1;
   realTime = 0;
   maxCombo = 0;
   earned = 0;
@@ -74,8 +87,33 @@ export class Game {
     this.sim = new Sim(level);
   }
 
+  private start() {
+    if (this.open || this.cooldown > 0 || this.sim.winner !== null) return;
+    this.open = true;
+    this.streak = this.quiz.combo;
+  }
+
+  // Close the round and pay the coins. A wrong answer already set the combo to 0.
+  private close() {
+    this.open = false;
+    this.wrong = null;
+    this.cooldown = QUIZ.cooldown;
+    if (this.pot > 0) {
+      this.sim.sides[0].money += this.pot;
+      this.gain = { v: this.pot, t: 1.5 };
+      coinFly(POT_POS.x, POT_POS.y, COIN_POS.x, COIN_POS.y, Math.min(16, 4 + this.pot / 20));
+    }
+    this.pot = this.shownPot = 0;
+    this.quiz.next();
+  }
+
+  // The player goes back to the battle. The combo stays for the next round.
+  leave() {
+    if (this.open && !this.wrong) this.close();
+  }
+
   private press(k: string) {
-    if (this.wrong || this.sim.winner !== null) return;
+    if (!this.open || this.wrong || this.sim.winner !== null) return;
     if (k === 'del') this.quiz.input = this.quiz.input.slice(0, -1);
     else if (k === 'ok') this.submit();
     else if (this.quiz.input.length < 4) this.quiz.input += k;
@@ -93,10 +131,15 @@ export class Game {
     this.maxCombo = Math.max(this.maxCombo, this.quiz.combo);
     this.earned += won;
     if (won > 0) {
-      this.sim.sides[0].money += won;
-      this.gain = { v: won, t: 1.5 };
+      this.pot += won;
+      this.solved++;
+      this.streak = this.quiz.combo;
+      this.potGain = { v: won, t: 1.2 };
       this.okFlash = 0.5;
-      coinFly(840, 200, COIN_POS.x, COIN_POS.y, Math.min(12, 3 + won / 20));
+      this.pop = 0.35;
+      const bx = 840 + MODAL.dx, by = 200 + MODAL.dy;
+      burst(bx, by, COLORS.green, 18);
+      coinFly(bx, by, POT_POS.x, POT_POS.y, Math.min(12, 3 + won / 20));
       this.quiz.next();
     } else {
       this.wrong = { answer: this.quiz.q.answer, t: 1.4 };
@@ -104,22 +147,34 @@ export class Game {
   }
 
   update(dt: number) {
-    if (!this.wrong) this.qTime += dt;
     for (const k of inp.keys) {
-      if (/^[0-9]$/.test(k)) this.press(k);
+      if (!this.open) { if (k === 'Enter' || k === ' ') this.start(); }
+      else if (/^[0-9]$/.test(k)) this.press(k);
       else if (k === 'Backspace') this.press('del');
       else if (k === 'Enter') this.press('ok');
     }
     this.realTime += dt;
-    this.speed += (TIER_SPEED[this.quiz.tier] - this.speed) * Math.min(1, dt * SPEED_EASE);
-    this.acc = Math.min(this.acc + dt * this.speed, 0.25);
-    while (this.acc >= DT) { this.sim.step(DT); this.acc -= DT; }
-    if (this.wrong && (this.wrong.t -= dt) <= 0) { this.wrong = null; this.quiz.next(); }
+    if (this.open) {
+      if (!this.wrong) this.qTime += dt;
+      else if ((this.wrong.t -= dt) <= 0) this.close();
+    } else {
+      this.cooldown = Math.max(0, this.cooldown - dt);
+      this.acc = Math.min(this.acc + dt, 0.25);
+      while (this.acc >= DT) {
+        this.sim.step(DT);
+        const inc = QUIZ.passive * this.solved * DT;
+        this.sim.sides[0].money += inc;
+        this.passiveEarned += inc;
+        this.acc -= DT;
+      }
+    }
     this.okFlash = Math.max(0, this.okFlash - dt);
+    this.pop = Math.max(0, this.pop - dt);
     this.gain.t = Math.max(0, this.gain.t - dt);
-    const m = this.sim.sides[0].money;
-    this.shownMoney += (m - this.shownMoney) * Math.min(1, dt * 8);
-    if (Math.abs(m - this.shownMoney) < 0.5) this.shownMoney = m;
+    this.potGain.t = Math.max(0, this.potGain.t - dt);
+    const ease = (shown: number, real: number) => (Math.abs(real - shown) < 0.5 ? real : shown + (real - shown) * Math.min(1, dt * 8));
+    this.shownMoney = ease(this.shownMoney, this.sim.sides[0].money);
+    this.shownPot = ease(this.shownPot, this.pot);
   }
 
   // One plain object for getStats(). `result` is 'won', 'lost' or 'quit'.
@@ -137,6 +192,7 @@ export class Game {
       quiz: {
         answered: this.tiers.reduce((a, t) => a + t.correct + t.wrong, 0),
         earned: this.earned,
+        passive: r1(this.passiveEarned),
         maxCombo: this.maxCombo,
         tiers: this.tiers.map((t) => ({ ...t, time: r1(t.time), avgTime: r1(t.time / Math.max(1, t.correct + t.wrong)) })),
         mistakes: this.mistakes,
@@ -148,10 +204,77 @@ export class Game {
   }
 
   draw(ctx: CanvasRenderingContext2D, now: number) {
+    inp.block = this.open;
     drawBoard(ctx, this.sim);
     this.drawHp(ctx);
-    this.drawTask(ctx, now);
+    this.drawPanel(ctx, now);
     this.drawShop(ctx);
+    inp.block = false;
+    if (this.open) {
+      ctx.fillStyle = 'rgba(30, 42, 68, 0.35)';
+      ctx.fillRect(0, 0, 1440, 900);
+      ctx.save();
+      ctx.translate(MODAL.dx, MODAL.dy);
+      this.drawTask(ctx, now);
+      ctx.restore();
+    }
+  }
+
+  // Top right: the start button with the cooldown bar, the last series and the passive income.
+  private drawPanel(ctx: CanvasRenderingContext2D, now: number) {
+    rrect(ctx, 736, 26, 680, 310, 24, COLORS.shadow);
+    rrect(ctx, 736, 20, 680, 310, 24, COLORS.card);
+
+    const ready = this.cooldown <= 0 && !this.open;
+    const bx = 760, by = 44, bw = 632, bh = 110;
+    const b = btn(bx, by, bw, bh);
+    if (b.clicked && ready) { burst(inp.x, inp.y, COLORS.green, 14); this.start(); }
+    if (ready) {
+      const pulse = 1 + Math.sin(now / 180) * 0.015;
+      ctx.save();
+      ctx.translate(bx + bw / 2, by + bh / 2);
+      ctx.scale(pulse, pulse);
+      ctx.translate(-(bx + bw / 2), -(by + bh / 2));
+      const dy = b.pressed ? 4 : 0;
+      if (!b.pressed) rrect(ctx, bx, by + 5, bw, bh, 22, '#1F5E3B');
+      rrect(ctx, bx, by + dy, bw, bh, 22, b.hover ? '#34A065' : COLORS.green);
+      text(ctx, 'Rozwiąż zadania', bx + bw / 2, by + 48 + dy, 40, '#FFFFFF');
+      text(ctx, 'kliknij albo naciśnij Enter', bx + bw / 2, by + 86 + dy, 16, '#D6F0E0', 'center', 600);
+      ctx.restore();
+    } else {
+      rrect(ctx, bx, by, bw, bh, 22, '#E3E8F0');
+      const k = 1 - this.cooldown / QUIZ.cooldown;
+      if (k > 0) {
+        ctx.save();
+        ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 22); ctx.clip();
+        ctx.fillStyle = '#BFD0F2';
+        ctx.fillRect(bx, by, bw * k, bh);
+        ctx.restore();
+      }
+      text(ctx, this.open ? 'Liczymy...' : `Zadania za ${Math.ceil(this.cooldown)} s`, bx + bw / 2, by + bh / 2 + 1, 32, '#5A6478');
+    }
+
+    // Last series
+    text(ctx, 'Seria', 760, 196, 18, '#5A6478', 'left', 600);
+    const sc = 1 + this.pop * 1.2;
+    ctx.save();
+    ctx.translate(760, 252);
+    ctx.scale(sc, sc);
+    text(ctx, String(this.streak), 0, 0, 64, '#2B4FA8', 'left');
+    ctx.restore();
+    const tier = tierOf(this.streak);
+    for (let i = 0; i < 5; i++) {
+      const on = i <= tier;
+      icon(ctx, ICONS.star, 862 + i * 30, 254, 26, on ? COLORS.gold : '#B3BCCB', 1.6, on ? COLORS.coin : '#E3E8F0');
+    }
+    text(ctx, `Nagroda w następnej rundzie: +${this.quiz.reward}`, 760, 304, 16, '#5A6478', 'left', 600);
+
+    // Passive income
+    rrect(ctx, 1052, 180, 340, 136, 18, '#FFF8E1');
+    text(ctx, 'Stały dochód', 1072, 204, 18, COLORS.gold, 'left', 600);
+    coin(ctx, 1088, 250, 16);
+    text(ctx, `+${num1(QUIZ.passive * this.solved)} / s`, 1114, 252, 40, COLORS.gold, 'left');
+    text(ctx, `Rozwiązane zadania: ${this.solved}`, 1072, 296, 16, '#8A6A1A', 'left', 600);
   }
 
   private drawHp(ctx: CanvasRenderingContext2D) {
@@ -181,8 +304,8 @@ export class Game {
 
   private drawTask(ctx: CanvasRenderingContext2D, now: number) {
     const q = this.quiz;
-    rrect(ctx, 736, 26, 680, 310, 24, COLORS.shadow);
-    rrect(ctx, 736, 20, 680, 310, 24, COLORS.card);
+    rrect(ctx, 736, 28, 680, 430, 24, COLORS.shadow);
+    rrect(ctx, 736, 20, 680, 430, 24, COLORS.card);
 
     // Equation; the font gets smaller for long questions.
     const parts = [...q.q.text.split(' '), '='];
@@ -229,15 +352,45 @@ export class Game {
       const on = i <= tier;
       icon(ctx, ICONS.star, 1034 + i * 26, 266, 22, on ? COLORS.gold : '#B3BCCB', 1.6, on ? COLORS.coin : '#E3E8F0');
     }
-    const slow = TIER_SPEED[tier] < 1 ? `  ·  czas ×${TIER_SPEED[tier].toFixed(2).replace(/0$/, '').replace('.', ',')}` : '';
-    text(ctx, (tier < 4 ? 'Seria' : `Seria ×${10 + q.combo - 12}`) + slow, 760, 292, 16, '#5A6478', 'left', 600);
+    const sc = 1 + this.pop * 1.2;
+    ctx.save();
+    ctx.translate(760, 300);
+    ctx.scale(sc, sc);
+    text(ctx, `Seria ${q.combo}`, 0, 0, 26, this.pop > 0 ? COLORS.green : '#2B4FA8', 'left');
+    ctx.restore();
+
+    // Coins won in this round
+    rrect(ctx, 760, 340, 380, 90, 18, '#FFF8E1');
+    text(ctx, 'Zarobione w tej rundzie', 780, 360, 16, COLORS.gold, 'left', 600);
+    coin(ctx, 776 + 8, 400, 14);
+    const pot = String(Math.round(this.shownPot));
+    text(ctx, pot, 808, 402, 44, COLORS.gold, 'left');
+    if (this.potGain.t > 0) {
+      ctx.font = `700 44px ${FONT}`;
+      ctx.globalAlpha = Math.min(1, this.potGain.t * 2);
+      text(ctx, `+${this.potGain.v}`, 822 + ctx.measureText(pot).width, 402 - (1.2 - this.potGain.t) * 20, 26, COLORS.green, 'left');
+      ctx.globalAlpha = 1;
+    }
+
+    // Back to the battle (the coins are paid, the combo stays)
+    const lb = btn(1172 + MODAL.dx, 352 + MODAL.dy, 220, 66);
+    const can = !this.wrong;
+    if (lb.clicked && can) this.leave();
+    ctx.globalAlpha = can ? 1 : 0.45;
+    const ldy = lb.pressed ? 4 : 0;
+    if (!lb.pressed) rrect(ctx, 1172, 356, 220, 66, 16, '#5A6478');
+    rrect(ctx, 1172, 352 + ldy, 220, 66, 16, lb.hover && can ? '#8D97AB' : '#7D879B');
+    text(ctx, 'Wróć do gry', 1282, 378 + ldy, 24, '#FFFFFF');
+    text(ctx, 'Esc', 1282, 403 + ldy, 14, '#E3E8F0', 'center', 600);
+    ctx.globalAlpha = 1;
+    if (this.wrong) text(ctx, 'Koniec rundy', 1282, 320, 18, COLORS.red);
 
     // Keypad
     rrect(ctx, 1172, 44, 220, 262, 18, COLORS.bg);
     const kw = (220 - 24 - 20) / 3;
     KEYS.forEach((k, i) => {
       const kx = 1184 + (i % 3) * (kw + 10), ky = 56 + Math.floor(i / 3) * 62;
-      const b = btn(kx, ky, kw, 52);
+      const b = btn(kx + MODAL.dx, ky + MODAL.dy, kw, 52);
       const green = k === 'ok';
       if (b.clicked) { this.press(k); burst(inp.x, inp.y, green ? COLORS.green : '#2B4FA8', 8); }
       const dy = b.pressed ? 3 : 0;
