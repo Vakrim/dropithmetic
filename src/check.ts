@@ -71,7 +71,7 @@ for (let seed = 1; seed <= 5; seed++) {
   for (const k of ['soldier', 'archer', 'monk', 'siege', 'soldier', 'siege'] as const) sim.buyBuilding(0, k);
   sim.sides[0].hp = sim.sides[1].hp = 1e9;
   for (let i = 0; i < 120 * 60; i++) sim.step(DT);
-  assert.ok(sim.units.every((u) => u.age < 15), `stuck unit, seed ${seed}`);
+  assert.ok(sim.units.every((u) => u.age < 30), `stuck unit, seed ${seed}`);
 }
 
 // Math rounds: cooldown, pause, payout on close, combo kept on leave, passive income only while running.

@@ -12,7 +12,7 @@ export type Side = 0 | 1; // 0 = player (top, falls down), 1 = enemy (bottom, fa
 export const LEVELS = 10;
 
 export const CFG = {
-  gravity: 520,
+  gravity: 520 / 3,
   maxSpeed: 700,
   bounceSpeed: 380, // speed of both units after a hit between enemies
   minSideways: 0.55, // minimum |x| of the bounce direction, so units fly apart sideways
