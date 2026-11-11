@@ -15,9 +15,17 @@ let game: Game | null = null;
 let ended = false;
 
 // Stats of all games in this page load, memory only. Run getStats() in the console.
+// It returns compact JSON and tries to copy it to the clipboard.
 const played: ReturnType<Game['report']>[] = [];
-(window as unknown as { getStats: () => unknown }).getStats = () =>
-  game && !ended ? [...played, game.report('running')] : played;
+(window as unknown as { getStats: () => string }).getStats = () => {
+  const json = JSON.stringify(game && !ended ? [...played, game.report('running')] : played);
+  navigator.clipboard.writeText(json).then(
+    () => console.log('getStats: copied to clipboard'),
+    // Chrome rejects the write when the focus is in DevTools, not on the page.
+    () => console.log('getStats: clipboard write failed. Run copy(getStats()) instead.'),
+  );
+  return json;
+};
 function quit() {
   if (game && !ended) played.push(game.report('quit'));
   game = null;
@@ -64,7 +72,7 @@ function start(level: number) {
 
 // public/logo.svg: Fredoka glyphs as outlines, so the page does not load the font. 1 em = 100 px at natural size.
 const logo = new Image();
-logo.src = '/logo.svg';
+logo.src = 'logo.svg'; // relative: the Pages build lives under /dropithmetic/
 
 function drawMenu() {
   const w = logo.width * 0.88, h = logo.height * 0.88; // 88 px font size
