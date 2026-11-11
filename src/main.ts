@@ -141,7 +141,7 @@ function frame(now: number) {
 // Wait for the font (max 2 s), so canvas text does not draw with the fallback font.
 // The sample text makes the browser also load the latin-ext file with the Polish letters.
 const PL = 'AaĄąĆćĘęŁłŃńÓóŚśŹźŻż×−';
-const fonts = [600, 700].map((w) => document.fonts.load(`${w} 20px Fredoka`, PL));
+const fonts = [600, 700].map((w) => document.fonts.load(`${w} 20px Nunito`, PL));
 Promise.race([Promise.all([...fonts, logo.decode()]), new Promise((r) => setTimeout(r, 2000))]).then(() =>
   requestAnimationFrame((t) => { last = t; frame(t); }),
 );

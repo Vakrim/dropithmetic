@@ -1,7 +1,7 @@
 import { CFG, COLORS, H, Kind, MONK, Side, W } from './config';
 import { PEG_R, PEGS, POLYS, Sim, ZONE_BOT, ZONE_TOP } from './sim';
 
-export const FONT = 'Fredoka, sans-serif';
+export const FONT = 'Nunito, sans-serif';
 export const SIDE_COLOR = [COLORS.player, COLORS.enemy];
 
 // 24x24 icon paths from the mock
