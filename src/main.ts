@@ -62,9 +62,14 @@ function start(level: number) {
   ended = false;
 }
 
+// public/logo.svg: Fredoka glyphs as outlines, so the page does not load the font. 1 em = 100 px at natural size.
+const logo = new Image();
+logo.src = '/logo.svg';
+
 function drawMenu() {
-  text(ctx, 'Dropithmetic', VW / 2, 150, 88, COLORS.ink);
-  text(ctx, 'Wybierz poziom', VW / 2, 230, 32, '#5A6478', 'center', 600);
+  const w = logo.width * 0.88, h = logo.height * 0.88; // 88 px font size
+  ctx.drawImage(logo, (VW - w) / 2, 160 - 162 * 0.88, w, h); // baseline at y 160, the SVG top is 1.62 em above it
+  text(ctx, 'Wybierz poziom', VW / 2, 250, 32, '#5A6478', 'center', 600);
   for (let i = 0; i < LEVELS; i++) {
     const lvl = i + 1, x = 160 + (i % 5) * 230, y = 320 + Math.floor(i / 5) * 230;
     const open = lvl <= unlocked;
@@ -137,6 +142,6 @@ function frame(now: number) {
 // The sample text makes the browser also load the latin-ext file with the Polish letters.
 const PL = 'AaĄąĆćĘęŁłŃńÓóŚśŹźŻż×−';
 const fonts = [600, 700].map((w) => document.fonts.load(`${w} 20px Fredoka`, PL));
-Promise.race([Promise.all(fonts), new Promise((r) => setTimeout(r, 2000))]).then(() =>
+Promise.race([Promise.all([...fonts, logo.decode()]), new Promise((r) => setTimeout(r, 2000))]).then(() =>
   requestAnimationFrame((t) => { last = t; frame(t); }),
 );
