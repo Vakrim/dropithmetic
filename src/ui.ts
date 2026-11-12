@@ -1,7 +1,7 @@
-import { CFG, COLORS, DT, KINDS, QUIZ, Side, UNITS, UPGRADES } from './config';
-import { coin, drawBoard, FONT, icon, ICONS, rrect, SIDE_COLOR, text, unitBall } from './draw';
+import { CFG, COLORS, DT, KINDS, QUIZ, Side, UNITS, WALL, WORKER } from './config';
+import { BOARD, coin, drawBoard, FONT, icon, ICONS, rrect, SIDE_COLOR, text, unitBall } from './draw';
 import { Quiz, tierOf } from './quiz';
-import { buildingPrice, Sim, upgradePrice } from './sim';
+import { buildingPrice, levelPrice, repairPrice, Sim, workerPrice } from './sim';
 
 // ---- Input (virtual 1440 x 900 coordinates) ----
 export const inp = { x: -1, y: -1, down: false, downX: -1, downY: -1, released: false, hoverAny: false, block: false, keys: [] as string[] };
@@ -67,7 +67,9 @@ export class Game {
   gain = { v: 0, t: 0 };
   shownMoney = 0;
   open = false; // the math modal is open and the battle is paused
-  cooldown = QUIZ.cooldown; // seconds until the next round can start
+  quizIn = QUIZ.every; // battle seconds until the next round
+  round = 0; // questions in this round, one for each collected task
+  left = 0; // questions left in this round
   pot = 0; // coins won in this round, paid when the modal closes
   shownPot = 0;
   potGain = { v: 0, t: 0 };
@@ -87,17 +89,21 @@ export class Game {
     this.sim = new Sim(level);
   }
 
+  // The round starts by itself every QUIZ.every seconds if the workers collected tasks.
   private start() {
-    if (this.open || this.cooldown > 0 || this.sim.winner !== null) return;
+    const s = this.sim.sides[0];
+    this.quizIn = QUIZ.every;
+    if (s.tasks <= 0 || this.sim.winner !== null) return;
     this.open = true;
+    this.round = this.left = s.tasks;
+    s.tasks = 0;
     this.streak = this.quiz.combo;
   }
 
-  // Close the round and pay the coins. A wrong answer already set the combo to 0.
+  // Close the round and pay the coins.
   private close() {
     this.open = false;
     this.wrong = null;
-    this.cooldown = QUIZ.cooldown;
     if (this.pot > 0) {
       this.sim.sides[0].money += this.pot;
       this.gain = { v: this.pot, t: 1.5 };
@@ -107,9 +113,13 @@ export class Game {
     this.quiz.next();
   }
 
-  // The player goes back to the battle. The combo stays for the next round.
+  // Back to the battle before the end. The coins won so far are paid, the tasks not
+  // answered wait for the next round, the combo stays.
   leave() {
-    if (this.open && !this.wrong) this.close();
+    if (!this.open) return;
+    this.sim.sides[0].tasks += this.left;
+    this.left = 0;
+    this.close();
   }
 
   private press(k: string) {
@@ -130,6 +140,7 @@ export class Game {
     else { st.wrong++; this.mistakes.push({ q: this.quiz.q.text, given, t: Math.round(this.sim.time) }); }
     this.maxCombo = Math.max(this.maxCombo, this.quiz.combo);
     this.earned += won;
+    this.left--;
     if (won > 0) {
       this.pot += won;
       this.solved++;
@@ -140,27 +151,31 @@ export class Game {
       const bx = 840 + MODAL.dx, by = 200 + MODAL.dy;
       burst(bx, by, COLORS.green, 18);
       coinFly(bx, by, POT_POS.x, POT_POS.y, Math.min(12, 3 + won / 20));
-      this.quiz.next();
+      if (this.left > 0) this.quiz.next();
+      else this.close();
     } else {
+      // A wrong answer uses up the task and resets the combo. The round goes on.
       this.wrong = { answer: this.quiz.q.answer, t: 1.4 };
     }
   }
 
   update(dt: number) {
     for (const k of inp.keys) {
-      if (!this.open) { if (k === 'Enter' || k === ' ') this.start(); }
-      else if (/^[0-9]$/.test(k)) this.press(k);
+      if (!this.open) continue;
+      if (/^[0-9]$/.test(k)) this.press(k);
       else if (k === 'Backspace') this.press('del');
       else if (k === 'Enter') this.press('ok');
     }
     this.realTime += dt;
     if (this.open) {
       if (!this.wrong) this.qTime += dt;
-      else if ((this.wrong.t -= dt) <= 0) this.close();
+      else if ((this.wrong.t -= dt) <= 0) {
+        if (this.left > 0) { this.wrong = null; this.quiz.next(); } else this.close();
+      }
     } else {
-      this.cooldown = Math.max(0, this.cooldown - dt);
       this.acc = Math.min(this.acc + dt, 0.25);
-      while (this.acc >= DT) {
+      while (this.acc >= DT && !this.open) {
+        if ((this.quizIn -= DT) <= 0) this.start();
         this.sim.step(DT);
         const inc = QUIZ.passive * this.solved * DT;
         this.sim.sides[0].money += inc;
@@ -197,8 +212,8 @@ export class Game {
         tiers: this.tiers.map((t) => ({ ...t, time: r1(t.time), avgTime: r1(t.time / Math.max(1, t.correct + t.wrong)) })),
         mistakes: this.mistakes,
       },
-      player: { ...sim.stats[0], healed: Math.round(sim.stats[0].healed), buildings: sim.sides[0].buildings.map((b) => b.kind), upgrades: sim.sides[0].up },
-      enemy: { ...sim.stats[1], healed: Math.round(sim.stats[1].healed), buildings: sim.sides[1].buildings.map((b) => b.kind), upgrades: sim.sides[1].up },
+      player: { ...sim.stats[0], buildings: sim.sides[0].buildings.map((b) => `${b.kind}:${b.lvl}`), workers: sim.sides[0].workers, walls: sim.sides[0].walls },
+      enemy: { ...sim.stats[1], buildings: sim.sides[1].buildings.map((b) => `${b.kind}:${b.lvl}`), workers: sim.sides[1].workers, walls: sim.sides[1].walls },
       timeline: sim.timeline,
     };
   }
@@ -225,34 +240,20 @@ export class Game {
     rrect(ctx, 736, 26, 680, 310, 24, COLORS.shadow);
     rrect(ctx, 736, 20, 680, 310, 24, COLORS.card);
 
-    const ready = this.cooldown <= 0 && !this.open;
-    const bx = 760, by = 44, bw = 632, bh = 110;
-    const b = btn(bx, by, bw, bh);
-    if (b.clicked && ready) { burst(inp.x, inp.y, COLORS.green, 14); this.start(); }
-    if (ready) {
-      const pulse = 1 + Math.sin(now / 180) * 0.015;
-      ctx.save();
-      ctx.translate(bx + bw / 2, by + bh / 2);
-      ctx.scale(pulse, pulse);
-      ctx.translate(-(bx + bw / 2), -(by + bh / 2));
-      const dy = b.pressed ? 4 : 0;
-      if (!b.pressed) rrect(ctx, bx, by + 5, bw, bh, 22, '#1F5E3B');
-      rrect(ctx, bx, by + dy, bw, bh, 22, b.hover ? '#34A065' : COLORS.green);
-      text(ctx, 'Rozwiąż zadania', bx + bw / 2, by + 48 + dy, 40, '#FFFFFF');
-      text(ctx, 'kliknij albo naciśnij Enter', bx + bw / 2, by + 86 + dy, 16, '#D6F0E0', 'center', 600);
-      ctx.restore();
-    } else {
-      rrect(ctx, bx, by, bw, bh, 22, '#E3E8F0');
-      const k = 1 - this.cooldown / QUIZ.cooldown;
-      if (k > 0) {
-        ctx.save();
-        ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 22); ctx.clip();
-        ctx.fillStyle = '#BFD0F2';
-        ctx.fillRect(bx, by, bw * k, bh);
-        ctx.restore();
-      }
-      text(ctx, this.open ? 'Liczymy...' : `Zadania za ${Math.ceil(this.cooldown)} s`, bx + bw / 2, by + bh / 2 + 1, 32, '#5A6478');
-    }
+    // Next round: the bar fills up to the round start. No tasks = no round.
+    const bx = 760, by = 44, bw = 632, bh = 110, tasks = this.sim.sides[0].tasks;
+    rrect(ctx, bx, by, bw, bh, 22, '#E3E8F0');
+    const k = this.open ? 1 : 1 - this.quizIn / QUIZ.every;
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 22); ctx.clip();
+    ctx.fillStyle = tasks > 0 || this.open ? '#BFE3CC' : '#D5DBE5';
+    ctx.fillRect(bx, by, bw * k, bh);
+    ctx.restore();
+    const title = this.open ? 'Liczymy...' : tasks > 0 ? `Zadania za ${Math.ceil(this.quizIn)} s` : 'Robotnicy szukają zadań';
+    text(ctx, title, bx + bw / 2, by + 42, 32, '#3D475C');
+    coin(ctx, bx + bw / 2 - 70, by + 82, 11);
+    text(ctx, '?', bx + bw / 2 - 70, by + 83, 14, COLORS.gold);
+    text(ctx, `Zebrane zadania: ${tasks}`, bx + bw / 2 - 50, by + 83, 20, '#5A6478', 'left', 600);
 
     // Last series
     text(ctx, 'Seria', 760, 196, 18, '#5A6478', 'left', 600);
@@ -273,7 +274,7 @@ export class Game {
     rrect(ctx, 1052, 180, 340, 136, 18, '#FFF8E1');
     text(ctx, 'Stały dochód', 1072, 204, 18, COLORS.gold, 'left', 600);
     coin(ctx, 1088, 250, 16);
-    text(ctx, `+${num1(QUIZ.passive * this.solved)} / s`, 1114, 252, 40, COLORS.gold, 'left');
+    text(ctx, `+${num1(this.sim.income + QUIZ.passive * this.solved)} / s`, 1114, 252, 40, COLORS.gold, 'left');
     text(ctx, `Rozwiązane zadania: ${this.solved}`, 1072, 296, 16, '#8A6A1A', 'left', 600);
   }
 
@@ -372,18 +373,19 @@ export class Game {
       ctx.globalAlpha = 1;
     }
 
-    // Back to the battle (the coins are paid, the combo stays)
+    // Progress in the round, or what comes after a wrong answer
+    const done = this.round - this.left;
+    if (this.wrong) text(ctx, this.left > 0 ? 'Następne zadanie' : 'Koniec rundy', 1282, 324, 20, COLORS.red);
+    else text(ctx, `Zadanie ${done + 1} z ${this.round}`, 1282, 324, 20, COLORS.ink);
+
+    // Back to the battle: the tasks not answered wait for the next round
     const lb = btn(1172 + MODAL.dx, 352 + MODAL.dy, 220, 66);
-    const can = !this.wrong;
-    if (lb.clicked && can) this.leave();
-    ctx.globalAlpha = can ? 1 : 0.45;
+    if (lb.clicked) this.leave();
     const ldy = lb.pressed ? 4 : 0;
     if (!lb.pressed) rrect(ctx, 1172, 356, 220, 66, 16, '#5A6478');
-    rrect(ctx, 1172, 352 + ldy, 220, 66, 16, lb.hover && can ? '#8D97AB' : '#7D879B');
+    rrect(ctx, 1172, 352 + ldy, 220, 66, 16, lb.hover ? '#8D97AB' : '#7D879B');
     text(ctx, 'Wróć do gry', 1282, 378 + ldy, 24, '#FFFFFF');
     text(ctx, 'Esc', 1282, 403 + ldy, 14, '#E3E8F0', 'center', 600);
-    ctx.globalAlpha = 1;
-    if (this.wrong) text(ctx, 'Koniec rundy', 1282, 320, 18, COLORS.red);
 
     // Keypad
     rrect(ctx, 1172, 44, 220, 262, 18, COLORS.bg);
@@ -466,35 +468,63 @@ export class Game {
       }
     });
 
-    const UP_ICONS = [ICONS.heart, ICONS.target, ICONS.heal, ICONS.sword];
-    UPGRADES.forEach((u, i) => {
-      const x = 736 + i * (tw + 14), y = 666, p = upgradePrice(s, i);
-      const t = tile(x, y, s.money >= p, `${u.name} (${s.up[i]}/${CFG.upgradeMax})`);
-      if (t.clicked && this.sim.buyUpgrade(0, i)) burst(inp.x, inp.y, COLORS.purple, 14);
+    // Worker and wall repair. Building levels: click a building on the belt.
+    {
+      const x = 736, y = 666, p = workerPrice(s);
+      const t = tile(x, y, s.money >= p, `Robotnik: zbiera zadania (${s.workers}/${WORKER.max})`);
+      if (t.clicked && this.sim.buyWorker(0)) burst(inp.x, inp.y, COLORS.purple, 14);
       const cx = x + tw / 2, ly = y + t.lift;
       ctx.beginPath(); ctx.ellipse(cx, ly + 40, 32, 28, 0, 0, Math.PI * 2); ctx.fillStyle = '#F1E6FA'; ctx.fill();
-      icon(ctx, UP_ICONS[i], cx, ly + 40, 34, COLORS.purple, 2.2);
-      for (let j = 0; j < CFG.upgradeMax; j++)
-        rrect(ctx, cx - 41 + j * 17, ly + 82, 12, 12, 4, j < s.up[i] ? COLORS.purple : '#E3E8F0');
+      icon(ctx, ICONS.worker, cx, ly + 40, 34, COLORS.purple, 2.2);
+      for (let j = 0; j < WORKER.max; j++)
+        rrect(ctx, cx - 41 + j * 17, ly + 82, 12, 12, 4, j < s.workers ? COLORS.purple : '#E3E8F0');
       price(x, ly + 116, p);
       ctx.globalAlpha = 1;
-    });
+    }
+    {
+      const x = 736 + tw + 14, y = 666, p = repairPrice(s), hurt = s.walls.some((w) => w < WALL.hp);
+      const t = tile(x, y, s.money >= p && hurt, hurt ? 'Naprawa muru: wszystkie części jak nowe' : 'Mur jest cały');
+      if (t.clicked && this.sim.repairWalls(0)) burst(inp.x, inp.y, COLORS.purple, 14);
+      const cx = x + tw / 2, ly = y + t.lift;
+      ctx.beginPath(); ctx.ellipse(cx, ly + 40, 32, 28, 0, 0, Math.PI * 2); ctx.fillStyle = '#F1E6FA'; ctx.fill();
+      icon(ctx, ICONS.wall, cx, ly + 40, 34, COLORS.purple, 2.2);
+      s.walls.forEach((w, j) => {
+        rrect(ctx, cx - 41 + j * 17, ly + 82, 12, 12, 4, '#E3E8F0');
+        if (w > 0) rrect(ctx, cx - 41 + j * 17, ly + 82 + 12 * (1 - w / WALL.hp), 12, 12 * (w / WALL.hp), 4, COLORS.purple);
+      });
+      price(x, ly + 116, p);
+      ctx.globalAlpha = 1;
+    }
+    text(ctx, 'Kliknij budynek na taśmie,', 736 + 2 * (tw + 14) + 8, 720, 18, '#5A6478', 'left', 600);
+    text(ctx, 'żeby go ulepszyć.', 736 + 2 * (tw + 14) + 8, 746, 18, '#5A6478', 'left', 600);
+
+    // Buildings on the player belt: a click buys the next level.
+    for (const [i, bd] of s.buildings.entries()) {
+      const cx = BOARD.x + CFG.beltX + bd.s, cy = BOARD.y + 124, p = levelPrice(bd);
+      if (cx < BOARD.x + CFG.beltX || cx > BOARD.x + CFG.beltX + CFG.beltLen) continue;
+      const b = btn(cx - 26, cy - 24, 52, 48);
+      if (!b.hover) continue;
+      tip = Number.isFinite(p) ? `${UNITS[bd.kind].name}, poziom ${bd.lvl}: ulepsz za ${p}` : `${UNITS[bd.kind].name}: najwyższy poziom`;
+      tipX = cx; tipY = cy + 70;
+      rrect(ctx, cx - 30, cy - 28, 60, 56, 14, undefined, s.money >= p ? COLORS.green : COLORS.line, 4);
+      if (b.clicked && this.sim.levelUp(0, i)) burst(inp.x, inp.y, COLORS.coin, 14);
+    }
 
     text(ctx, `Poziom ${this.level}`, 748, 852, 20, '#5A6478', 'left', 600);
     if (tip) {
       const t: string = tip;
       ctx.font = `600 16px ${FONT}`;
       const w = ctx.measureText(t).width + 24;
-      const x = Math.min(1416 - w, Math.max(736, tipX - w / 2));
+      const x = Math.min(1416 - w, Math.max(tipX < 736 ? 24 : 736, tipX - w / 2));
       rrect(ctx, x, tipY - 30, w, 32, 10, COLORS.ink);
       text(ctx, t, x + w / 2, tipY - 13, 16, '#FFFFFF', 'center', 600);
     }
   }
 }
 
-const UNIT_INFO = {
+const UNIT_INFO: Record<string, string> = {
   soldier: 'żołnierz, mocno uderza',
   archer: 'łucznik, strzela do wrogów',
-  monk: 'mnich, leczy sojuszników',
+  general: 'generał, przyspiesza i wzmacnia sojuszników',
   siege: 'machina, niszczy zamek',
 };

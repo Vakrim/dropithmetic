@@ -17,6 +17,8 @@
 
 Twój zamek stoi na górze planszy, zamek wroga na dole. Twoje jednostki spadają w dół, odbijają się od kołków i walczą z jednostkami przeciwnika. Każda, która doleci do wrogiego zamku, zabiera mu życie. Środkowe pole przy zamku liczy się podwójnie, a nawet poczwórnie.
 
+Każdy zamek chroni mur z pięciu części. Mur odbija wrogie jednostki i sam też je rani, więc najpierw trzeba go rozbić.
+
 Skąd wziąć złoto na nowe jednostki? Trzeba liczyć.
 
 ## Licz, żeby wygrać
@@ -25,12 +27,17 @@ Skąd wziąć złoto na nowe jednostki? Trzeba liczyć.
   <img src="screenshots/zadania.png" alt="Runda zadań: działanie 7 × 5, seria 13 i złoto zarobione w rundzie" width="800">
 </p>
 
-Kliknij **Rozwiąż zadania** albo naciśnij Enter. Bitwa staje, a Ty rozwiązujesz działania na czas.
+Zadania zbierają robotnicy. Na środku planszy leżą złote monety ze znakiem zapytania. Robotnik, który w nią trafi, przynosi Ci jedno zadanie. Robotnicy wroga zbierają te same monety, więc warto ich ubiec.
+
+Co 10 sekund bitwa staje i zaczyna się runda: tyle działań, ile zadań zebrali robotnicy. Po ostatnim działaniu bitwa rusza dalej.
 
 - Każda dobra odpowiedź daje złoto.
 - Im dłuższa seria, tym większa nagroda i trudniejsze zadania.
 - Każde rozwiązane zadanie zwiększa też stały dochód do końca poziomu.
-- Jeden błąd kończy rundę, więc warto się skupić.
+- Błąd zabiera to jedno zadanie i zeruje serię, ale runda trwa dalej.
+- Możesz wrócić do bitwy przed końcem rundy. Zarobione złoto dostajesz od razu, a pozostałe zadania czekają na następną rundę.
+
+Zamek daje też stały dochód, nawet bez zadań.
 
 Zadania rosną razem z serią: dodawanie i odejmowanie do 15, potem liczby dwucyfrowe i trzycyfrowe, przejście przez dziesiątkę, a na końcu tabliczka mnożenia i dzielenie.
 
@@ -42,10 +49,14 @@ Za zarobione złoto kupujesz budynki, a każdy z nich wysyła na planszę inne j
 | ---------- | --------- | -------------------------- |
 | Koszary    | żołnierz  | mocno uderza               |
 | Strzelnica | łucznik   | strzela do wrogów z daleka |
-| Klasztor   | mnich     | leczy sojuszników          |
+| Sztab      | generał   | przyspiesza i wzmacnia sojuszników |
 | Warsztat   | machina   | niszczy zamek              |
 
-Ulepszenia dają żołnierzom i łucznikom więcej życia, łucznikom większy zasięg, mnichom silniejsze leczenie, a machinom większą siłę.
+Machina rozbija mur najszybciej. Złoto możesz też wydać na:
+
+- **ulepszenie budynku**: kliknij budynek na taśmie, a będzie produkować szybciej (do trzech poziomów),
+- **robotnika**: więcej robotników to więcej zadań w każdej rundzie,
+- **naprawę muru**: wszystkie części muru wracają do pełnego życia.
 
 ## 10 poziomów
 
@@ -61,7 +72,6 @@ Każdy wygrany poziom otwiera następny. Wróg z każdym poziomem ma więcej zł
 
 | Klawisz       | Co robi                     |
 | ------------- | --------------------------- |
-| Enter, spacja | otwiera rundę zadań         |
 | 0–9           | wpisuje odpowiedź           |
 | Backspace     | kasuje cyfrę                |
 | Enter         | zatwierdza odpowiedź        |

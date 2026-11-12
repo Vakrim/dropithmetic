@@ -5,16 +5,16 @@ export const W = 600;
 export const H = 860;
 export const DT = 1 / 120;
 
-export type Kind = 'soldier' | 'archer' | 'monk' | 'siege';
-export const KINDS: Kind[] = ['soldier', 'archer', 'monk', 'siege'];
+export type Kind = 'soldier' | 'archer' | 'general' | 'siege' | 'worker';
+export const KINDS: Kind[] = ['soldier', 'archer', 'general', 'siege']; // the buildings in the shop
 export type Side = 0 | 1; // 0 = player (top, falls down), 1 = enemy (bottom, falls up)
 
 export const LEVELS = 10;
 
 export const CFG = {
-  gravity: 520 / 3,
+  gravity: 520 / 6, // a general's aura doubles it (GENERAL.boost)
   maxSpeed: 700,
-  bounceSpeed: 380, // speed of both units after a hit between enemies
+  bounceSpeed: 190, // speed of both units after a hit between enemies, doubled in a general's aura
   minSideways: 0.55, // minimum |x| of the bounce direction, so units fly apart sideways
   hitCooldown: 0.4, // one pair of units deals damage once in this time
   restitution: 0.45, // pegs and walls
@@ -26,15 +26,15 @@ export const CFG = {
   unitMaxAge: 40, // safety: a unit stuck for this long disappears
   playerCastleHp: 1000,
   enemyCastleHp: (lvl: number) => 500 + lvl * 150,
-  enemyIncome: (lvl: number) => [2, 3, 4, 5.5, 7, 8.5, 10, 12, 14, 16][lvl - 1],
+  income: (lvl: number) => [2, 3, 4, 5.5, 7, 8.5, 10, 12, 14, 16][lvl - 1], // coins/s for both sides
   // Enemy can buy these kinds from this level.
-  enemyUnlock: { soldier: 1, archer: 2, monk: 4, siege: 6 } as Record<Kind, number>,
-  enemyUpgradesFrom: 3,
+  enemyUnlock: { soldier: 1, archer: 2, general: 4, siege: 6 } as Record<string, number>,
+  enemyUpgradesFrom: 3, // building levels, workers and wall repair
   zoneMult: [1, 2, 4, 2, 1],
   baseReward: 10,
   buildingPriceGrowth: 1.5,
-  upgradePriceGrowth: 2,
-  upgradeMax: 5,
+  buildingMaxLvl: 3, // each level above 1 adds levelBonus to the production speed
+  levelBonus: 0.5,
 };
 
 export interface UnitDef {
@@ -48,31 +48,35 @@ export interface UnitDef {
 }
 
 export const UNITS: Record<Kind, UnitDef> = {
-  soldier: { name: 'Koszary', r: 12, hp: 30, hit: 10, castle: 10, interval: 3, price: 50 },
-  archer: { name: 'Strzelnica', r: 12, hp: 18, hit: 3, castle: 5, interval: 4, price: 150 },
-  monk: { name: 'Klasztor', r: 12, hp: 24, hit: 0, castle: 2, interval: 6, price: 400 },
-  siege: { name: 'Warsztat', r: 16, hp: 60, hit: 0, castle: 40, interval: 9, price: 900 },
+  soldier: { name: 'Koszary', r: 12, hp: 10, hit: 3, castle: 3, interval: 1, price: 150 },
+  archer: { name: 'Strzelnica', r: 12, hp: 6, hit: 1, castle: 2, interval: 1.3, price: 150 },
+  general: { name: 'Sztab', r: 12, hp: 8, hit: 0, castle: 1, interval: 2, price: 150 },
+  siege: { name: 'Warsztat', r: 16, hp: 20, hit: 0, castle: 13, interval: 3, price: 150 },
+  // The castle produces workers (WORKER), the shop has no building for them.
+  worker: { name: 'Robotnik', r: 9, hp: 5, hit: 0, castle: 0, interval: 2, price: 100 },
 };
 
-export const ARCHER = { range: 110, rangePerLvl: 25, cooldown: 1, damage: 5 };
-export const MONK = { radius: 70, heal: 5, healPerLvl: 0.4 };
-export const HP_PER_LVL = 0.25; // soldier and archer
-export const SIEGE_DMG_PER_LVL = 0.35;
-
-export const UPGRADES = [
-  { name: 'Życie żołnierzy i łuczników', price: 80 },
-  { name: 'Zasięg łuczników', price: 100 },
-  { name: 'Leczenie mnichów', price: 120 },
-  { name: 'Siła machin', price: 150 },
-];
+export const ARCHER = { range: 110, cooldown: 1, damage: 2 };
+// Allies in the aura (and the general) get gravity and bounce speed x boost and hit damage
+// x hitMult. Auras do not stack.
+export const GENERAL = { radius: 70, boost: 2, hitMult: 3 };
+// Each worker the side owns sends one worker unit per UNITS.worker.interval seconds.
+export const WORKER = { start: 1, max: 5 };
+// Task points on the middle line. A worker that touches one gets a task for its side.
+// The slots sit between the pegs. `active` points are on the board at a time.
+export const POINTS = { y: H / 2, slots: [90, 150, 210, 390, 450, 510], active: 4, respawn: 2, r: 14 };
+// Five wall segments in front of the castle zones. A wall bounces enemy units, hits them
+// for `hit` and loses the unit's castle damage.
+export const WALL = { hp: 60, hit: 3, repairPrice: 100 };
 
 // The combo decides the question tier. Each tier lasts 3 correct answers.
 export const TIER_LEN = 3;
 export const TIER_MULT = [1, 3, 5, 7]; // tier 5: 10 + correct answers in tier 5
 // Math rounds: the battle pauses while the child does the math.
 export const QUIZ = {
-  cooldown: 5, // seconds of battle before the next round can start
+  every: 10, // seconds of battle between rounds; a round has one question per collected task
   passive: 0.1, // coins per second for each correct answer in this level
+  enemyTask: 20, // coins the enemy AI gets for each task
 };
 
 export const COLORS = {

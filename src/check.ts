@@ -1,5 +1,5 @@
 // Self-check: `pnpm check`. Fails loudly if question rules or the simulation break.
-import { DT } from './config';
+import { DT, QUIZ } from './config';
 import { carries, makeQuestion, multOf, Quiz } from './quiz';
 import { Sim } from './sim';
 import { Game, inp } from './ui';
@@ -45,9 +45,11 @@ assert.equal(quiz.combo, 0);
 // Simulation: same seed gives the same result, units reach castles, no NaN.
 const run = (seed: number) => {
   const sim = new Sim(5, seed);
-  sim.sides[0].money = 5000;
-  for (const k of ['archer', 'monk', 'siege'] as const) sim.buyBuilding(0, k);
-  for (let i = 0; i < 120 * 90; i++) {
+  sim.ai = false;
+  for (const s of sim.sides) s.money = 600;
+  for (const side of [0, 1] as const)
+    for (const k of ['soldier', 'archer', 'general', 'siege'] as const) sim.buyBuilding(side, k);
+  for (let i = 0; i < 120 * 120; i++) {
     sim.step(DT);
     for (const u of sim.units) assert.ok(Number.isFinite(u.x + u.y + u.vx + u.vy), 'NaN in unit');
   }
@@ -61,49 +63,52 @@ console.log('ok', a.sides.map((s) => `${Math.round(s.hp)}/${s.maxHp}`).join(' ')
 // Stats: castle damage in the counters matches the castle HP that was lost.
 const sum = (r: Record<string, number>) => Object.values(r).reduce((x, y) => x + y, 0);
 a.sides.forEach((s, side) => assert.equal(sum(a.stats[1 - side].castleDmg), s.maxHp - s.hp, 'castleDmg'));
-assert.ok(a.stats[0].spent === 150 + 400 + 900 && a.stats[0].buys.length === 3, 'buys');
+assert.ok(a.stats[0].spent === 150 * 4 && a.stats[0].buys.length === 4, 'buys');
 assert.equal(a.timeline.length, Math.floor(a.time / 5) + 1, 'timeline');
 
 // No unit gets stuck: long battles with castles that cannot fall.
 for (let seed = 1; seed <= 5; seed++) {
   const sim = new Sim(10, seed);
   sim.sides[0].money = 1e6;
-  for (const k of ['soldier', 'archer', 'monk', 'siege', 'soldier', 'siege'] as const) sim.buyBuilding(0, k);
+  for (const k of ['soldier', 'archer', 'general', 'siege', 'soldier', 'siege'] as const) sim.buyBuilding(0, k);
   sim.sides[0].hp = sim.sides[1].hp = 1e9;
   for (let i = 0; i < 120 * 60; i++) sim.step(DT);
-  assert.ok(sim.units.every((u) => u.age < 30), `stuck unit, seed ${seed}`);
+  assert.ok(sim.stats.every((st) => st.expired === 0), `unit removed by CFG.unitMaxAge, seed ${seed}`);
 }
 
-// Math rounds: cooldown, pause, payout on close, combo kept on leave, passive income only while running.
+// Math rounds: start by themselves when tasks wait, pause the battle, a wrong answer uses up
+// its task, the payout comes at the end, passive income runs only in the battle.
 {
   const g = new Game(1);
-  const money = () => g.sim.sides[0].money;
+  const s = g.sim.sides[0];
+  g.sim.points.length = 0; // no task points, so the workers collect nothing
   const key = (...k: string[]) => { inp.keys.push(...k); g.update(0.01); inp.keys.length = 0; };
   const answer = (d = 0) => key(...String(g.quiz.q.answer + d), 'Enter');
-  key('Enter');
-  assert.equal(g.open, false, 'opened during cooldown');
-  for (let i = 0; i < 500; i++) g.update(0.01);
-  key('Enter');
-  assert.ok(g.open, 'not opened');
-  answer(); answer();
-  const t = g.sim.time;
+  for (let i = 0; i < 1100; i++) g.update(0.01);
+  assert.ok(!g.open && g.quizIn > 8, 'round without tasks');
+  s.tasks = 3;
+  for (let i = 0; i < 1000 && !g.open; i++) g.update(0.01);
+  assert.ok(g.open && g.round === 3 && s.tasks === 0, 'round with tasks');
+  const t = g.sim.time, m = s.money;
+  answer(); answer(1);
   for (let i = 0; i < 100; i++) g.update(0.01);
   assert.equal(g.sim.time, t, 'battle runs in the modal');
-  assert.equal(g.pot, 20, 'pot');
-  assert.equal(money(), 0, 'paid before close');
-  g.leave();
-  assert.equal(money(), 20, 'payout');
-  assert.ok(!g.open && g.quiz.combo === 2 && g.streak === 2 && g.cooldown === 5, 'leave');
+  assert.ok(g.open && g.wrong !== null, 'round ended at the wrong answer');
+  for (let i = 0; i < 60; i++) g.update(0.01);
+  assert.ok(g.open && !g.wrong && g.quiz.combo === 0 && g.left === 1, 'next question after the wrong answer');
+  assert.equal(s.money, m, 'paid before the end');
+  answer();
+  assert.ok(!g.open && g.pot === 0 && g.solved === 2 && g.quizIn > QUIZ.every - 0.1, 'round end');
   for (let i = 0; i < 100; i++) g.update(0.01);
-  assert.ok(Math.abs(money() - (20 + 0.1 * 2 * g.sim.time - 0.1 * 2 * t)) < 1e-6, 'passive');
-  for (let i = 0; i < 500; i++) g.update(0.01);
-  key(' ');
-  answer(); answer(1);
-  const m = money();
+  assert.ok(Math.abs(s.money - m - 20 - (g.sim.income + QUIZ.passive * 2) * (g.sim.time - t)) < 1e-6, 'payout and passive');
+  // Leave early: the coins won so far are paid, the other tasks wait for the next round.
+  s.tasks = 3;
+  g.quizIn = 0.001;
+  g.update(0.01);
+  assert.ok(g.open && g.round === 3, 'second round');
+  answer();
+  const before = s.money, pot = g.pot;
   g.leave();
-  assert.ok(g.open, 'leave during the wrong answer');
-  for (let i = 0; i < 150; i++) g.update(0.01);
-  assert.ok(!g.open && g.quiz.combo === 0 && g.streak === 3 && g.solved === 3, 'round end');
-  assert.ok(money() - m >= 10 && g.pot === 0, 'payout after a wrong answer');
+  assert.ok(!g.open && s.tasks === 2 && g.quiz.combo === 2 && pot > 0 && s.money === before + pot, 'leave');
 }
 console.log('ok rounds');

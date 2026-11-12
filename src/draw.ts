@@ -1,5 +1,5 @@
-import { CFG, COLORS, H, Kind, MONK, Side, W } from './config';
-import { PEG_R, PEGS, POLYS, Sim, ZONE_BOT, ZONE_TOP } from './sim';
+import { CFG, COLORS, GENERAL, H, Kind, POINTS, Side, W, WALL } from './config';
+import { PEG_R, PEGS, POLYS, Sim, WALL_Y, wallX, ZONE_BOT, ZONE_TOP } from './sim';
 
 export const FONT = 'Nunito, sans-serif';
 export const SIDE_COLOR = [COLORS.player, COLORS.enemy];
@@ -8,8 +8,10 @@ export const SIDE_COLOR = [COLORS.player, COLORS.enemy];
 export const ICONS = {
   soldier: 'M4 21V9h5V4h6v5h5v12M10 21v-5h4v5',
   archer: 'M7 21V8H5V3h3v2h2V3h4v2h2V3h3v5h-2v13zM10 21v-4h4v4',
-  monk: 'M3 21V10l9-6 9 6v11M12 10v8M9 13h6',
+  general: 'M12 2l3 7h7l-5.5 4.5 2 7.5L12 16.5 5.5 21l2-7.5L2 9h7z',
   siege: 'M3 21V11l6 3v-3l6 3V5h4v16zM7 17h2M13 17h2',
+  worker: 'M4 9c4-5 12-5 16 0M12 7v14',
+  wall: 'M3 20V8h18v12zM3 14h18M9 8v6M15 14v6',
   heart: 'M12 20s-8-5-8-11a4 4 0 0 1 8-1 4 4 0 0 1 8 1c0 6-8 11-8 11z',
   target: 'M12 3a9 9 0 1 0 0.01 0zM12 8a4 4 0 1 0 0.01 0zM12 11.5v1',
   heal: 'M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6zM12 9v6M9 12h6',
@@ -66,15 +68,23 @@ export function unitBall(ctx: CanvasRenderingContext2D, kind: Kind, side: Side, 
   const c = SIDE_COLOR[side];
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = flash > 0 ? '#FFFFFF' : kind === 'monk' ? '#FFFFFF' : c;
+  ctx.fillStyle = flash > 0 ? '#FFFFFF' : kind === 'general' ? '#FFFFFF' : c;
   ctx.fill();
   ctx.lineWidth = 3;
   ctx.strokeStyle = COLORS.ink;
   ctx.stroke();
-  ctx.fillStyle = kind === 'monk' ? c : '#FFFFFF';
+  ctx.fillStyle = kind === 'general' ? c : '#FFFFFF';
   if (kind === 'archer') { ctx.beginPath(); ctx.arc(x, y, r * 0.38, 0, Math.PI * 2); ctx.fill(); }
-  if (kind === 'monk') { const s = r * 0.22; ctx.fillRect(x - s / 2, y - s * 2, s, s * 4); ctx.fillRect(x - s * 2, y - s / 2, s * 4, s); }
+  if (kind === 'general') { // five-point star
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const a = (i * Math.PI) / 5 - Math.PI / 2, d = r * (i % 2 ? 0.25 : 0.6);
+      ctx.lineTo(x + Math.cos(a) * d, y + Math.sin(a) * d);
+    }
+    ctx.fill();
+  }
   if (kind === 'siege') { ctx.fillStyle = COLORS.ink; ctx.fillRect(x - r * 0.4, y - r * 0.4, r * 0.8, r * 0.8); }
+  if (kind === 'worker') { ctx.beginPath(); ctx.arc(x, y, r * 0.45, 0, Math.PI * 2); ctx.fillStyle = COLORS.coin; ctx.fill(); }
 }
 
 const BOARD_X = 24, BOARD_Y = 20;
@@ -132,13 +142,29 @@ export function drawBoard(ctx: CanvasRenderingContext2D, sim: Sim) {
   ctx.fillStyle = COLORS.peg;
   for (const p of PEGS) { ctx.beginPath(); ctx.arc(p.x, p.y, PEG_R, 0, Math.PI * 2); ctx.fill(); }
 
+  // Walls: the colored part shows the HP left
+  for (const side of [0, 1] as Side[])
+    sim.sides[side].walls.forEach((hp, i) => {
+      if (hp <= 0) return;
+      const [a, b] = wallX(i), y = WALL_Y[side] - 5;
+      rrect(ctx, a - 3, y, b - a + 6, 10, 5, '#FFFFFF');
+      rrect(ctx, a - 3, y, (b - a + 6) * (hp / WALL.hp), 10, 5, SIDE_COLOR[side]);
+      rrect(ctx, a - 3, y, b - a + 6, 10, 5, undefined, COLORS.ink, 2.5);
+    });
+
+  // Task points: coins with a question mark
+  for (const x of sim.points) {
+    coin(ctx, x, POINTS.y, POINTS.r);
+    text(ctx, '?', x, POINTS.y + 1, 18, COLORS.gold);
+  }
+
   // Belts and buildings
   for (const side of [0, 1] as Side[]) drawBelt(ctx, sim, side);
 
-  // Monk aura under the units
-  for (const u of sim.units) if (u.kind === 'monk') {
+  // General aura under the units
+  for (const u of sim.units) if (u.kind === 'general') {
     ctx.beginPath();
-    ctx.arc(u.x, u.y, MONK.radius, 0, Math.PI * 2);
+    ctx.arc(u.x, u.y, GENERAL.radius, 0, Math.PI * 2);
     ctx.fillStyle = '#2E8B5714';
     ctx.fill();
     ctx.setLineDash([4, 6]);
@@ -226,6 +252,9 @@ function drawBelt(ctx: CanvasRenderingContext2D, sim: Sim, side: Side) {
       const by = y + 11 + (side === 0 ? -7 : 7); // building center, a bit toward its castle
       rrect(ctx, cx - 26, by - 24, 52, 48, 12, SIDE_COLOR[side], COLORS.ink, 4);
       icon(ctx, ICONS[b.kind], cx, by, 26, '#FFFFFF', 2.4);
+      // Level: one small star for each level above 1, on the side away from the castle
+      for (let j = 1; j < b.lvl; j++)
+        icon(ctx, ICONS.star, cx - (b.lvl - 2) * 7 + (j - 1) * 14, side === 0 ? by + 18 : by - 18, 14, COLORS.ink, 1.4, COLORS.coin);
       const py = side === 0 ? by + 30 : by - 36;
       rrect(ctx, cx - 22, py, 44, 6, 3, '#D3D9E4');
       rrect(ctx, cx - 22, py, 44 * b.t, 6, 3, COLORS.ink);

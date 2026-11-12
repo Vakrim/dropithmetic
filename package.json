@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "check": "tsc && tsx src/check.ts"
+    "check": "tsc && tsx src/check.ts",
+    "balance": "tsx src/balance.ts"
   },
   "devDependencies": {
     "tsx": "^4.23.15",
